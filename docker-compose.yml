@@ -1,0 +1,69 @@
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — one server, three databases (one per service).
+  # Host port 5433 -> container 5432. Databases are created on first startup by
+  # the init script mounted into /docker-entrypoint-initdb.d/.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16
+    container_name: insta-postgres
+    environment:
+      POSTGRES_USER: insta
+      POSTGRES_PASSWORD: insta
+      # POSTGRES_DB is intentionally omitted; the init script creates the 3 DBs.
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Apache Kafka — single broker, KRaft mode (no Zookeeper). Reachable from the
+  # host (locally-run services) at localhost:9092.
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: insta-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft: this node is both broker and controller.
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      # Two listeners: INTERNAL for other containers, EXTERNAL for the host.
+      KAFKA_CFG_LISTENERS: "INTERNAL://:29092,CONTROLLER://:9093,EXTERNAL://:9092"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/bitnami/kafka
+
+  # ---------------------------------------------------------------------------
+  # Kafka UI — optional, view topics/messages at http://localhost:8090
+  # ---------------------------------------------------------------------------
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: insta-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: "true"
+
+volumes:
+  postgres-data:
+  kafka-data:
