@@ -92,8 +92,7 @@ Health check for any booted service: `GET /health` → `OK`.
 
 **Phase 0 (scaffolding) is complete:** all 4 services boot with only a `HealthController`,
 Flyway no-op baseline, `docker-compose`, gateway routes + CORS already configured, and the
-frozen event contract. **No domain code, entities, Kafka producers/consumers, JWT, or
-frontend exist yet.**
+frozen event contract.
 
 **Phase 1 = build the actual services, in parallel.** Work plan below.
 
@@ -106,25 +105,49 @@ same JWT shape:
 - **Claims:** `sub` = userId (uuid), `username` (string), `exp`.
 - Services extract `userId`/`username` from these to fill event fields (e.g.
   `likerUsername`, `followerUsername`). Once agreed, capture it in `docs/jwt-contract.md`.
+- **Status: agreed and live in all 3 backend services.** `app.jwt.secret` in
+  `user-service`, `post-service`, and `notification-service` `application.yml` now
+  defaults to the same dev secret from `docs/jwt-contract.md` (previously user-service and
+  notification-service still had the `dev-secret-change-me` placeholder — fixed so tokens
+  minted by user-service verify everywhere without exporting `JWT_SECRET` by hand).
 
 ### Divya — user-service, then notification-service
 
 user-service is the **critical path** (it issues the JWTs everyone needs) — build it first.
 
-1. **user-service** (`:8081`, `userdb`):
+1. **user-service** (`:8081`, `userdb`) — **done**:
    - `V2__users_follows.sql` — `users`, `follows` tables
-   - JPA entities + repositories
-   - Auth: `POST /api/auth/register`, `POST /api/auth/login` → return JWT (BCrypt passwords,
-     sign per the JWT shape above)
-   - JWT validation filter for protected routes
+   - JPA entities (`User`, `Follow`/`FollowId`) + repositories
+   - Auth: `POST /api/auth/register`, `POST /api/auth/login` → BCrypt passwords, HS256 JWT
+     via `security/JwtService` (jjwt 0.12.6)
+   - `security/JwtAuthenticationFilter` — validates `Authorization: Bearer` on every route
+     except `/health` and `/api/auth/**`; puts `userId`/`username` on the request as attrs
    - `GET /api/users/{id}`, `POST`/`DELETE /api/users/{id}/follow`, `.../followers`,
      `.../following`
-   - Kafka producer → publish `user.followed` to `user-events`
-2. **notification-service** (`:8083`, `notificationdb`) — reactive, build after:
-   - `V2__notifications.sql` — `notifications` table
-   - Kafka consumer, group-id `notification-service`, subscribes to **both** `user-events`
-     and `post-events`, switches on `type`, applies the contract's notify/skip rules
-   - `GET /api/notifications`, `GET .../unread-count`, `PATCH .../{id}/read`
+   - Kafka producer (`event/UserEventPublisher`) → publishes `user.followed` to
+     `user-events` on follow, JSON type headers disabled so consumers don't need matching
+     Java classes
+   - `./mvnw clean package` and `./mvnw test` both pass. Not yet smoke-tested against a
+     live `docker compose up -d` stack from this environment.
+2. **notification-service** (`:8083`, `notificationdb`) — **done**:
+   - `V2__notifications.sql` — `notifications` table, `event_id UNIQUE` for dedup against
+     Kafka's at-least-once redelivery
+   - JWT filter mirrors post-service's pattern exactly (`AuthUser`, `JwtService`,
+     `JwtAuthFilter`, `@CurrentUser` resolver) — same key derivation, so user-service tokens
+     verify here too
+   - `event/NotificationEventListener` — `@KafkaListener` on **both** `user-events` and
+     `post-events`, group-id `notification-service`; parses raw JSON and switches on `type`
+     (no shared Java classes with producers, matching both sides disabling Kafka type
+     headers); applies the notify/skip rules from `docs/event-contract.md` exactly
+   - `GET /api/notifications`, `GET /api/notifications/unread-count`,
+     `PATCH /api/notifications/{id}/read` (403 if marking someone else's notification read)
+   - `./mvnw clean package` and `./mvnw test` both pass. Not yet smoke-tested against a
+     live `docker compose up -d` stack from this environment.
+
+**Divya's side (user-service + notification-service) is functionally complete.** Remaining
+work per `docs/integration.md` §4: a live end-to-end run — `docker compose up -d`, boot all
+4 services, register two users, like/comment/follow across them, and confirm notifications
+land correctly through the gateway.
 
 ### Rahul — post-service, then gateway, then frontend
 

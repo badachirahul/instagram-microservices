@@ -16,10 +16,14 @@ spring:
     bootstrap-servers: localhost:9092
     consumer:
       group-id: notification-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 server:
   port: 8083
 
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-secret-change-me}
+    # Shared HS256 secret — see docs/jwt-contract.md. Same value in every service.
+    secret: ${JWT_SECRET:I0KQjwMx0u/vwwt0/UQ2bu9uePtTQm8aysfPmd/OucvzNt7sDrNwVLeTcJPyNuMu}
