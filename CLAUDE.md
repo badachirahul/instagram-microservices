@@ -1,7 +1,9 @@
 # CLAUDE.md
 
-Guidance for Claude Code when working in this repo. Read `README.md` (full plan) and
-`docs/event-contract.md` (frozen Kafka contract) before making changes.
+Guidance for Claude Code when working in this repo. Read `README.md` (full plan),
+`docs/event-contract.md` (frozen Kafka contract), `docs/jwt-contract.md` (frozen JWT shape),
+and `docs/integration.md` (how to run everything + Divya's post-pull checklist) before
+making changes.
 
 ## What this is
 
@@ -126,18 +128,23 @@ user-service is the **critical path** (it issues the JWTs everyone needs) — bu
 
 ### Rahul — post-service, then gateway, then frontend
 
-Can start immediately in parallel; stub the "current user" until Divya's JWT is ready,
-then swap in real validation.
+1. **post-service** (`:8082`, `postdb`) — ✅ **DONE & verified end-to-end** (schema
+   validates, JWT filter, all endpoints, Kafka producer emitting the 3 events with the
+   exact contract shape). Layout: `domain/` entities, `repo/`, `dto/`, `security/` (jjwt
+   HS256 filter + `@CurrentUser` resolver), `event/` (producer + event records),
+   `service/PostService`, `web/` controllers. Endpoints: `POST /api/posts`,
+   `GET /api/posts/{id}`, `GET /api/posts?userId=`, `GET /api/feed`, like/unlike,
+   `POST`/`GET /api/posts/{id}/comments`.
+2. **gateway** — routes + CORS already wired; adjust only if routes change. ✅ runs.
+3. **frontend** (`frontend/`, Vite React + Tailwind + axios, `:5173`) — ✅ **built &
+   working** against the gateway: feed, create post, like/unlike, comments. **Uses a
+   DEV-ONLY in-browser login** (`src/devAuth.js` mints a JWT with the shared secret) because
+   user-service didn't exist yet — swap for real `/api/auth/login` once it does (see
+   `docs/integration.md` §3). Cloudinary upload not wired yet (paste an image URL for now).
 
-1. **post-service** (`:8082`, `postdb`):
-   - `V2__posts_likes_comments.sql` — `posts`, `likes`, `comments` tables
-   - JPA entities + repositories
-   - JWT validation filter (extract `userId`/`username`, per the JWT shape above)
-   - `POST /api/posts`, `GET /api/posts/{id}`, `GET /api/posts?userId=`, `GET /api/feed`,
-     like/unlike, `POST`/`GET /api/posts/{id}/comments`
-   - Kafka producer → publish `post.created`, `post.liked`, `comment.added` to `post-events`
-2. **gateway** — routes + CORS already wired; adjust only if routes change.
-3. **frontend** — build LAST, once the Kafka flow works end-to-end.
+> **docker-compose note:** Kafka image is `apache/kafka:3.7.0` (the old `bitnami/kafka:3.7`
+> tag was pulled from Docker Hub). Uses `KAFKA_*` (not `KAFKA_CFG_*`) env vars. Services run
+> on the host and reach Kafka at `localhost:9092`.
 
 ## Conventions
 

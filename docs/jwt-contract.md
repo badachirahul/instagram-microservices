@@ -7,6 +7,11 @@
 ## Algorithm & key
 
 - **Algorithm:** `HS256` (HMAC-SHA256, symmetric — same secret signs and verifies).
+- **Key derivation:** use the secret's **raw UTF-8 bytes** as the HMAC key — i.e.
+  `Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8))` (jjwt). Do **not**
+  base64-decode the string first. The secret is 64 chars = 64 bytes ≥ 32 required for HS256.
+  Both services must derive the key the same way or signatures won't verify.
+- **Library:** [jjwt](https://github.com/jwtk/jjwt) `io.jsonwebtoken` `0.12.x` on both sides.
 - **Shared secret (dev):**
 
   ```
